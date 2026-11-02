@@ -1,0 +1,240 @@
+{
+  "name": "Invoice intake — human-in-the-loop",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Invoice intake\nPOST a PDF to this webhook as multipart field **invoice**.\n\nThe invoice-intake service extracts and validates it and returns a decision: **auto_post**, **review** or **reject**.\n\nReplace the three *Prepare* nodes with your real actions — e.g. QuickBooks/Xero for auto-post, Slack/Teams/email for review.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000001",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-420, -260]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000002",
+      "name": "Receive invoice",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-400, 60],
+      "webhookId": "6f3a8a52-6a3e-4c86-9a51-8d1d2b8f1a01"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://invoice-service:8000/invoices",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "invoice"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000003",
+      "name": "Extract and validate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-160, 60]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [
+                  {
+                    "id": "a1",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "auto_post",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Auto-post"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [
+                  {
+                    "id": "a2",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "review",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Review"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [
+                  {
+                    "id": "a3",
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "reject",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Reject"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000004",
+      "name": "Route by decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [80, 60]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "action",
+              "value": "posted",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "message",
+              "value": "=Posted {{ $json.data.supplier }} {{ $json.data.invoice_number }} ({{ $json.data.currency }} {{ $json.data.total }}).",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000005",
+      "name": "Prepare ledger entry",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [340, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s3",
+              "name": "action",
+              "value": "sent_to_review",
+              "type": "string"
+            },
+            {
+              "id": "s4",
+              "name": "message",
+              "value": "=Needs review: {{ $json.data.supplier }} {{ $json.data.invoice_number }}. {{ $json.reasons.join(' ') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000006",
+      "name": "Prepare review request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [340, 60]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s5",
+              "name": "action",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "s6",
+              "name": "message",
+              "value": "=Not posted: {{ $json.reasons.join(' ') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000007",
+      "name": "Prepare rejection notice",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [340, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { id: $json.id, decision: $json.decision, action: $json.action, message: $json.message, reasons: $json.reasons } }}",
+        "options": {}
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000008",
+      "name": "Reply to sender",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [600, 60]
+    }
+  ],
+  "connections": {
+    "Receive invoice": {
+      "main": [[{ "node": "Extract and validate", "type": "main", "index": 0 }]]
+    },
+    "Extract and validate": {
+      "main": [[{ "node": "Route by decision", "type": "main", "index": 0 }]]
+    },
+    "Route by decision": {
+      "main": [
+        [{ "node": "Prepare ledger entry", "type": "main", "index": 0 }],
+        [{ "node": "Prepare review request", "type": "main", "index": 0 }],
+        [{ "node": "Prepare rejection notice", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare ledger entry": {
+      "main": [[{ "node": "Reply to sender", "type": "main", "index": 0 }]]
+    },
+    "Prepare review request": {
+      "main": [[{ "node": "Reply to sender", "type": "main", "index": 0 }]]
+    },
+    "Prepare rejection notice": {
+      "main": [[{ "node": "Reply to sender", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false
+}
