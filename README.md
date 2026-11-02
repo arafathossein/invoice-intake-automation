@@ -1,5 +1,6 @@
 # Invoice intake automation
 
+[![tests](https://github.com/arafathossein/invoice-intake-automation/actions/workflows/tests.yml/badge.svg)](https://github.com/arafathossein/invoice-intake-automation/actions/workflows/tests.yml)
 **Supplier invoices in, explained decisions out.** A small service that reads PDF invoices, extracts the fields, checks them, and routes each one to *auto-post*, *human review* or *reject* — with a reason for every decision and an audit trail of every step. Ships with an n8n workflow so it drops into an existing automation stack.
 
 Built by [AFYRA Technologies](https://afyra-iota.vercel.app) as a reference implementation of human-in-the-loop document automation.
