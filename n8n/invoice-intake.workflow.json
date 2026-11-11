@@ -3,15 +3,18 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Invoice intake\nPOST a PDF to this webhook as multipart field **invoice**.\n\nThe invoice-intake service extracts and validates it and returns a decision: **auto_post**, **review** or **reject**.\n\nReplace the three *Prepare* nodes with your real actions — e.g. QuickBooks/Xero for auto-post, Slack/Teams/email for review.",
-        "height": 260,
+        "content": "## Invoice intake\nPOST a PDF to this webhook as multipart field **invoice**.\n\nThe invoice-intake service extracts and validates it and returns a decision: **auto_post**, **review** or **reject**.\n\n**Auto-post** bills go to Xero through the service's /ledger/post endpoint. It looks the bill up before creating it and sends an idempotency key, so the node's automatic retries can never create a second bill.\n\nReplace the two remaining *Prepare* nodes with your review channel (Slack, Teams, email) and rejection notice.",
+        "height": 340,
         "width": 420
       },
       "id": "0b1c0d2e-0000-4000-8000-000000000001",
       "name": "About this workflow",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-420, -260]
+      "position": [
+        -420,
+        -260
+      ]
     },
     {
       "parameters": {
@@ -24,7 +27,10 @@
       "name": "Receive invoice",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [-400, 60],
+      "position": [
+        -400,
+        60
+      ],
       "webhookId": "6f3a8a52-6a3e-4c86-9a51-8d1d2b8f1a01"
     },
     {
@@ -50,7 +56,10 @@
       "name": "Extract and validate",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-160, 60]
+      "position": [
+        -160,
+        60
+      ]
     },
     {
       "parameters": {
@@ -58,13 +67,21 @@
           "values": [
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
                   {
                     "id": "a1",
                     "leftValue": "={{ $json.decision }}",
                     "rightValue": "auto_post",
-                    "operator": { "type": "string", "operation": "equals" }
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
                   }
                 ],
                 "combinator": "and"
@@ -74,13 +91,21 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
                   {
                     "id": "a2",
                     "leftValue": "={{ $json.decision }}",
                     "rightValue": "review",
-                    "operator": { "type": "string", "operation": "equals" }
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
                   }
                 ],
                 "combinator": "and"
@@ -90,13 +115,21 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
                   {
                     "id": "a3",
                     "leftValue": "={{ $json.decision }}",
                     "rightValue": "reject",
-                    "operator": { "type": "string", "operation": "equals" }
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
                   }
                 ],
                 "combinator": "and"
@@ -112,7 +145,10 @@
       "name": "Route by decision",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [80, 60]
+      "position": [
+        80,
+        60
+      ]
     },
     {
       "parameters": {
@@ -121,13 +157,13 @@
             {
               "id": "s1",
               "name": "action",
-              "value": "posted",
+              "value": "={{ $json.status }}",
               "type": "string"
             },
             {
               "id": "s2",
               "name": "message",
-              "value": "=Posted {{ $json.data.supplier }} {{ $json.data.invoice_number }} ({{ $json.data.currency }} {{ $json.data.total }}).",
+              "value": "=Bill {{ $json.status === 'created' ? 'created' : 'already in Xero' }} for {{ $('Extract and validate').item.json.data.supplier }} {{ $('Extract and validate').item.json.data.invoice_number }} (Xero id {{ $json.bill_id }}).",
               "type": "string"
             }
           ]
@@ -139,7 +175,10 @@
       "name": "Prepare ledger entry",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [340, -100]
+      "position": [
+        600,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -166,7 +205,10 @@
       "name": "Prepare review request",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [340, 60]
+      "position": [
+        340,
+        60
+      ]
     },
     {
       "parameters": {
@@ -193,7 +235,10 @@
       "name": "Prepare rejection notice",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [340, 220]
+      "position": [
+        340,
+        220
+      ]
     },
     {
       "parameters": {
@@ -205,31 +250,126 @@
       "name": "Reply to sender",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [600, 60]
+      "position": [
+        860,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://invoice-service:8000/ledger/post",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ result: $json }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "0b1c0d2e-0000-4000-8000-000000000009",
+      "name": "Post bill to Xero (safe to retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        -100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
     "Receive invoice": {
-      "main": [[{ "node": "Extract and validate", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Extract and validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Extract and validate": {
-      "main": [[{ "node": "Route by decision", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Route by decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Route by decision": {
       "main": [
-        [{ "node": "Prepare ledger entry", "type": "main", "index": 0 }],
-        [{ "node": "Prepare review request", "type": "main", "index": 0 }],
-        [{ "node": "Prepare rejection notice", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Post bill to Xero (safe to retry)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare review request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare rejection notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Prepare ledger entry": {
-      "main": [[{ "node": "Reply to sender", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Prepare review request": {
-      "main": [[{ "node": "Reply to sender", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Prepare rejection notice": {
-      "main": [[{ "node": "Reply to sender", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reply to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post bill to Xero (safe to retry)": {
+      "main": [
+        [
+          {
+            "node": "Prepare ledger entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

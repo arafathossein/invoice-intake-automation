@@ -73,7 +73,7 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[dev]"
 
 invoice-intake process samples/*.pdf        # routes all five samples
-pytest                                      # 38 tests
+pytest                                      # 50 tests
 invoice-intake serve --port 8000            # API docs at http://localhost:8000/docs
 ```
 
@@ -100,7 +100,27 @@ curl -X POST http://localhost:5678/webhook/invoice-intake \
 }
 ```
 
-The workflow has three clearly labelled *Prepare* nodes — swap them for your accounting system (QuickBooks, Xero, Exact…) and your review channel (Slack, Teams, email).
+Auto-post invoices go to Xero through the service (next section). The two remaining *Prepare* nodes are placeholders for your review channel (Slack, Teams, email) and the rejection notice.
+
+## Posting to Xero without duplicates
+
+The dangerous failure in any posting workflow: Xero saves the bill, but the response is lost (timeout, dropped connection, worker restart). The workflow retries, and a naive retry creates a second bill. That's how invoices get paid twice.
+
+`POST /ledger/post` is built so a retry is always safe:
+
+1. **Posting ledger.** A local SQLite table records each supplier + invoice number as `pending` before the call and `posted` after. A posted invoice is never sent again.
+2. **Look before create.** Every attempt first searches Xero for a live bill (not voided or deleted) with the same invoice number and supplier. If an earlier attempt "failed" after Xero had saved the bill, this finds it and returns `found_existing`.
+3. **Idempotency key.** The create request carries an `Idempotency-Key` derived from supplier + invoice number, the same on every retry, so Xero can drop a duplicate request that arrives while the first is still in flight.
+
+| Response `status` | Meaning |
+| --- | --- |
+| `created` | A new bill was created |
+| `found_existing` | The bill was already in Xero (an earlier attempt, or entered by hand); nothing new was created |
+| `already_posted` | This invoice was posted before; Xero was not called |
+
+A `502` means Xero didn't confirm the post. The invoice stays `pending` and the next attempt looks it up first, so the n8n node retries it automatically (3 tries, 5 s apart). Rejected invoices are refused with `409`; invoices that went to review are only posted with `approved_by` set. Bills are created as `DRAFT` by default.
+
+The tests simulate exactly this: a ledger that saves the bill and then loses the response, followed by a retry, and check that only one bill exists.
 
 ## Using a language model
 
@@ -121,6 +141,7 @@ The model is told to copy values exactly and return `null` rather than guess; wh
 | `GET` | `/health` | — | status, active extractor, vendor count |
 | `POST` | `/invoices` | multipart `file` (PDF, ≤10 MB) · `?dry_run=true` | full result |
 | `POST` | `/invoices/text` | `{"text", "source", "dry_run"}` | full result |
+| `POST` | `/ledger/post` | `{"result", "approved_by"}` | `status`, `bill_id`, `attempts`, `idempotency_key` |
 
 If `SERVICE_API_KEY` is set, callers must send it as `X-API-Key`. Interactive docs at `/docs`.
 
@@ -134,6 +155,10 @@ If `SERVICE_API_KEY` is set, callers must send it as `X-API-Key`. Interactive do
 | `DATA_DIR` | `data` | Duplicate register and audit log |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | — | Optional model endpoint |
 | `SERVICE_API_KEY` | — | Optional shared secret for the API |
+| `XERO_TENANT_ID` | — | Xero organisation to post bills to |
+| `XERO_TOKEN_FILE` / `XERO_ACCESS_TOKEN` | — | OAuth access token. Tokens expire after 30 minutes, so prefer a file your token refresher rewrites; it's read on every request |
+| `XERO_BILL_STATUS` | `DRAFT` | `DRAFT`, `SUBMITTED` or `AUTHORISED` |
+| `XERO_ACCOUNT_CODE` | — | Expense account for the bill line (needed for `AUTHORISED`) |
 
 ## Project layout
 
@@ -143,11 +168,12 @@ src/invoice_intake/
   rules.py       validation checks and routing policy
   pipeline.py    PDF → text → extract → validate → decide → record
   store.py       vendor list, SQLite duplicate register, JSONL audit log
+  ledger.py      retry-safe posting to Xero: posting ledger, lookup, idempotency key
   api.py         FastAPI service
   cli.py         command line
 n8n/             importable workflow (tested on n8n 2.45.7)
 samples/         fictional invoices + the script that generates them
-tests/           parsing, rules, pipeline (incl. mocked LLM), API
+tests/           parsing, rules, pipeline (incl. mocked LLM), API, retry-safe posting
 ```
 
 ## Design choices
@@ -162,7 +188,7 @@ tests/           parsing, rules, pipeline (incl. mocked LLM), API
 - Review queue UI with the PDF beside the extracted fields
 - Line-item extraction and PO matching
 - OCR for scanned (image-only) PDFs
-- Connectors for QuickBooks Online and Xero
+- QuickBooks Online connector (Xero is done)
 
 ## License
 

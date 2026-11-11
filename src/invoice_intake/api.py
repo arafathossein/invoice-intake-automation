@@ -2,6 +2,7 @@
 
 POST /invoices        multipart PDF upload  → Result
 POST /invoices/text   {"text", "source"}     → Result
+POST /ledger/post     {"result", "approved_by"} → post the bill to Xero, safe to retry
 GET  /health
 """
 
@@ -13,13 +14,15 @@ import os
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .models import Result
+from .ledger import Bill, Poster, PostingError, PostingLedger, XeroClient, token_from_env_or_file
+from .models import Decision, Result
 from .pipeline import Pipeline
 
 MAX_BYTES = 10 * 1024 * 1024
 
 app = FastAPI(title="Invoice intake", version="0.1.0")
 _pipeline: Pipeline | None = None
+_poster: Poster | None = None
 
 
 def get_pipeline() -> Pipeline:
@@ -27,6 +30,22 @@ def get_pipeline() -> Pipeline:
     if _pipeline is None:
         _pipeline = Pipeline()
     return _pipeline
+
+
+def get_poster() -> Poster:
+    global _poster
+    if _poster is None:
+        tenant = os.getenv("XERO_TENANT_ID")
+        if not tenant:
+            raise HTTPException(status_code=503, detail="Ledger not configured: set XERO_TENANT_ID and a token")
+        client = XeroClient(
+            token_from_env_or_file(os.getenv("XERO_ACCESS_TOKEN"), os.getenv("XERO_TOKEN_FILE")),
+            tenant,
+            status=os.getenv("XERO_BILL_STATUS", "DRAFT"),
+            account_code=os.getenv("XERO_ACCOUNT_CODE") or None,
+        )
+        _poster = Poster(client, PostingLedger(get_pipeline().settings.data_dir / "postings.sqlite3"))
+    return _poster
 
 
 def require_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -62,3 +81,27 @@ def process_text(body: TextIn) -> Result:
     if not body.text.strip():
         raise HTTPException(status_code=422, detail="Text is empty")
     return get_pipeline().process_text(body.text, body.source, commit=not body.dry_run)
+
+
+class PostIn(BaseModel):
+    result: Result
+    approved_by: str | None = None  # required for invoices that went to review
+
+
+@app.post("/ledger/post", dependencies=[Depends(require_key)])
+def post_to_ledger(body: PostIn, poster: Poster = Depends(get_poster)) -> dict:
+    r = body.result
+    if r.decision == Decision.REJECT:
+        raise HTTPException(status_code=409, detail="Rejected invoices are never posted")
+    if r.decision == Decision.REVIEW and not (body.approved_by or "").strip():
+        raise HTTPException(status_code=409, detail="This invoice needs review; send approved_by once a person has approved it")
+    try:
+        bill = Bill.from_result(r)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        out = poster.post(bill)
+    except PostingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": out.status, "bill_id": out.bill_id, "attempts": out.attempts,
+            "idempotency_key": out.idempotency_key, "approved_by": body.approved_by}
